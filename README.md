@@ -47,6 +47,11 @@ This needs a C++20 compiler (GCC 11 or newer, or Clang). The build compiles the 
 `.orz` files only decode when every build does its float maths exactly as written, so do not build it with
 `-ffast-math`.
 
+## Releasing
+
+Bump `version` in `pyproject.toml` and merge to `main`. CI then builds and tests the wheel, tags `v{version}`, makes a
+GitHub release and publishes to PyPI.
+
 ## License
 
-The bindings are MIT licensed. The ORZ codec in `extern/osu_replay_zip` is rumoi's.
+MIT. The ORZ codec in `extern/osu_replay_zip` is MIT licensed by rumoi; wheels include both licenses.

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Lossless compression for osu! replays with the ORZ format"
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "extern/osu_replay_zip/LICENSE"]
 requires-python = ">=3.12"
 authors = [{ name = "cmyui" }]
 classifiers = [
@@ -34,6 +34,7 @@ cmake.build-type = "Release"
 wheel.py-api = "cp312"
 
 [tool.cibuildwheel]
+# one stable-ABI wheel covers CPython 3.12 and newer; the codec builds for x86-64 only
 build = "cp312-manylinux_x86_64"
-test-extras = ["test"]
-test-command = "pytest {project}/tests"
+test-requires = ["pytest>=8"]
+test-command = "python -m pytest {project}/tests"
