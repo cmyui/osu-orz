@@ -29,27 +29,21 @@ namespace {
 		return nb::bytes((const char*)v.data(), v.size());
 	}
 
-	// mode < 0: an .osr file; otherwise bare replay data of that game mode (0 osu!, 1 taiko, 2 catch, 3 mania)
-	nb::bytes compress(const nb::bytes& data, int mode, bool relax) {
-
-		if (mode > 3)
-			throw std::invalid_argument("mode must be 0-3");
+	// info: 0 for an .osr file, or what bare replay data is (header_info())
+	nb::bytes compress(const nb::bytes& data, u32 info) {
 
 		const auto input{ to_vector(data) };
 
 		orz_state state{};
 
-		if (relax)
-			state.options |= ENCODE_RELAX;
-
 		{
 			nb::gil_scoped_release release;
 
-			osr_to_orz(input, mode < 0 ? (u32)ORZ_FLAG::has_osr_header : 1u << mode, state);
+			osr_to_orz(input, info, state);
 		}
 
 		if (state.output.empty())
-			throw orz_error(mode < 0 ? "not a valid .osr file" : "not valid replay data");
+			throw orz_error(state.error);
 
 		return to_bytes(state.output);
 	}
@@ -95,6 +89,7 @@ NB_MODULE(_core, m) {
 
 	m.attr("FORMAT_VERSION") = ORZ_VERSION;
 
-	m.def("compress", &compress, nb::arg("data"), nb::arg("mode"), nb::arg("relax"));
+	m.def("compress", &compress, nb::arg("data"), nb::arg("info"));
+	m.def("header_info", &header_info, nb::arg("mode"), nb::arg("relax"));
 	m.def("decompress", &decompress, nb::arg("data"));
 }

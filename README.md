@@ -9,9 +9,14 @@ orz = osu_orz.compress(osr_bytes)          # an .osr file
 assert osu_orz.decompress(orz) == osr_bytes
 
 # bare replay data (the LZMA stream osu! stores for a score) has no header, so say what it is
-orz = osu_orz.compress(replay_data, osu_orz.Mode.OSU, relax=True)
+info = osu_orz.HeaderInfo(mode=osu_orz.Mode.OSU, relax=True)
+orz = osu_orz.compress(replay_data, header_info=info)
 assert osu_orz.decompress(orz) == replay_data
 ```
+
+`compress` reads an `.osr`'s game mode and relax from its header. Bare replay data needs `header_info` in place of the
+header, and an `.osr` must not be given one, so the two can never disagree. Header info only changes how well a
+replay compresses, never what `decompress` gives back.
 
 ## What comes back
 
@@ -22,8 +27,9 @@ assert osu_orz.decompress(orz) == replay_data
 - the replay data's LZMA bytes, compressed again the way osu! compresses them. Replay data osu! wrote comes back byte
   for byte. Data written by other software comes back with the same frames, compressed like osu! would.
 
-Errors raise `osu_orz.OrzError` (a `ValueError`): input that is not a replay, or an `.orz` that is damaged, cut short or
-made by a newer format version. Both functions release the GIL, so threads compress in parallel.
+Errors raise `osu_orz.OrzError` (a `ValueError`): input that is not a replay, header info missing for bare replay data
+or given with an `.osr`, or an `.orz` that is damaged, cut short or made by a newer format version. Both functions
+release the GIL, so threads compress in parallel.
 
 ## Format stability
 
