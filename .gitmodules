@@ -1,0 +1,3 @@
+[submodule "extern/osu_replay_zip"]
+	path = extern/osu_replay_zip
+	url = https://github.com/rumoi/osu_replay_zip.git
