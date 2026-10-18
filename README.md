@@ -27,9 +27,9 @@ replay compresses, never what `decompress` gives back.
 - the replay data's LZMA bytes, compressed again the way osu! compresses them. Replay data osu! wrote comes back byte
   for byte. Data written by other software comes back with the same frames, compressed like osu! would.
 
-Errors raise `osu_orz.OrzError` (a `ValueError`): input that is not a replay, header info missing for bare replay data or
-given with an `.osr`, or an `.orz` that is damaged, cut short or made by a newer format version. Both functions release
-the GIL, so threads compress in parallel.
+Errors raise `osu_orz.OrzError` (a `ValueError`): input that is not a replay, header info missing for bare replay data
+or given with an `.osr`, or an `.orz` that is damaged, cut short or made by a newer format version. Both functions
+release the GIL, so threads compress in parallel.
 
 ## Format stability
 
