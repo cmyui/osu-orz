@@ -13,10 +13,11 @@ RUN git clone -q "$ORZ_REPO" /orz \
     && cd /orz \
     && git fetch -q origin "$ORZ_REF" \
     && git checkout -q FETCH_HEAD \
-    && gcc -O2 -c Lib/LzmaDec.c -o /tmp/LzmaDec.o \
-    && g++ -std=c++20 -O2 -msse4.2 -ffp-contract=off -DORZ_FP_CONTRACT_OFF -I . -I Lib frames_prior_gen.cpp /tmp/LzmaDec.o \
+    && gcc -O2 -c Lib/LzmaDec.c -o LzmaDec.o \
+    && g++ -std=c++20 -O2 -msse4.2 -ffp-contract=off -DORZ_FP_CONTRACT_OFF -I . -I Lib frames_prior_gen.cpp LzmaDec.o \
         -o /usr/local/bin/frames_prior_gen
 
-COPY *.py /tools/
+# snapshots.sh builds encoded_size.cpp against /orz with each priors file
+COPY *.py *.cpp *.sh /tools/
 
 WORKDIR /work
