@@ -146,6 +146,25 @@ def test_mode_is_for_bare_replay_data_only() -> None:
             osu_orz.compress(data, mode=mode)
 
 
+@pytest.mark.parametrize("mode", list(Mode))
+def test_check_round_trip_only_checks(mode: Mode) -> None:
+    data = replay_data(replay_text(mode))
+
+    assert osu_orz.compress(data, mode=mode, check_round_trip=True) == osu_orz.compress(data, mode=mode)
+
+
+def test_skip_crc() -> None:
+    orz = osu_orz.compress(replay_data(replay_text(Mode.OSU)), mode=Mode.OSU)
+    assert osu_orz.decompress(orz, skip_crc=True) == osu_orz.decompress(orz)
+
+    damaged = bytearray(orz)
+    damaged[len(orz) // 2] ^= 0x40
+    with pytest.raises(osu_orz.OrzError):
+        osu_orz.decompress(bytes(damaged))
+    # what is left of it
+    osu_orz.decompress(bytes(damaged), skip_crc=True)
+
+
 def test_compresses() -> None:
     data = replay_data(replay_text(Mode.OSU, frames=20000))
 

@@ -40,11 +40,15 @@ Some replay data is stored as it is, and comes back byte for byte:
 
 - data the codec can not code as frames (not LZMA, or text that is not osu!'s frames);
 - data whose coded frames would be no smaller than its LZMA;
-- data whose coded frames do not decode back to it. `compress` checks by decoding what it wrote.
+- with `check_round_trip=True`, data whose coded frames do not decode back to it. `compress` then decodes what it wrote
+  before returning it, which is slower but keeps a coding bug from turning into a replay that decodes wrong.
 
 Errors raise `osu_orz.OrzError` (a `ValueError`): an `.osr` given a `mode`, anything else without one that is not an
 `.osr`, an `.orz` given to `compress`, or an `.orz` that is damaged, cut short or made by a newer format version. A
 `mode` that is not a `Mode` raises `ValueError`. Both functions release the GIL, so threads compress in parallel.
+
+`decompress(orz, skip_crc=True)` gives back what a file decodes to even when it fails its CRC check (damaged, or
+written by an incompatible build), to recover what is left of it.
 
 ## Format stability
 

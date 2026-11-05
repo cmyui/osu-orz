@@ -47,10 +47,10 @@ namespace {
 		return version >= 20070000 && version <= 30070000;
 	}
 
-	// runs to_orz(out, state) with the GIL released. The encoder decodes what it wrote, and stores the replay data as it
-	// is when that does not give the replay back
+	// runs to_orz(out, state) with the GIL released. check_round_trip: the encoder decodes what it wrote, and stores the
+	// replay data as it is when that does not give the replay back
 	template <class F>
-	nb::bytes encode(F to_orz, const char* failure) {
+	nb::bytes encode(F to_orz, bool check_round_trip, const char* failure) {
 
 		std::vector<u8> out;
 		bool ok;
@@ -59,7 +59,7 @@ namespace {
 			nb::gil_scoped_release release;
 
 			orz_state state{};
-			state.options = ENCODE_CHECK_ROUND_TRIP;
+			state.options = check_round_trip ? ENCODE_CHECK_ROUND_TRIP : 0;
 
 			ok = to_orz(out, state);
 		}
@@ -70,7 +70,7 @@ namespace {
 		return to_bytes(out);
 	}
 
-	nb::bytes compress_osr(const nb::bytes& data) {
+	nb::bytes compress_osr(const nb::bytes& data, bool check_round_trip) {
 
 		const auto input{ view(data) };
 
@@ -80,11 +80,12 @@ namespace {
 		if (_osr_header h{}; !read_osr_header(input, h))
 			throw orz_error("not an .osr file (bare replay data needs a mode)");
 
-		return encode([&](auto& out, auto& state) { return osr_to_orz(input, out, state); }, "could not compress this replay");
+		return encode([&](auto& out, auto& state) { return osr_to_orz(input, out, state); }, check_round_trip,
+			"could not compress this replay");
 	}
 
 	// mode: the e_mode, 0 to 6 (finding autopilot is the encoder's job)
-	nb::bytes compress_replay_data(const nb::bytes& data, u32 mode) {
+	nb::bytes compress_replay_data(const nb::bytes& data, u32 mode, bool check_round_trip) {
 
 		const auto input{ view(data) };
 
@@ -95,10 +96,11 @@ namespace {
 			throw orz_error("an .osr says its own mode; give a mode only with bare replay data");
 
 		return encode([&](auto& out, auto& state) { return replay_data_to_orz(input, (e_mode)mode, out, state); },
-			"could not compress this replay data");
+			check_round_trip, "could not compress this replay data");
 	}
 
-	nb::bytes decompress(const nb::bytes& data) {
+	// skip_crc: give back what the file decodes to even when it fails its CRC check
+	nb::bytes decompress(const nb::bytes& data, bool skip_crc) {
 
 		const auto input{ view(data) };
 
@@ -108,10 +110,10 @@ namespace {
 		{
 			nb::gil_scoped_release release;
 
-			ok = orz_to_osr(input, out);
+			ok = orz_to_osr(input, out, skip_crc ? DECODE_SKIP_CRC : 0);
 
 			// a file that only fails its CRC is damaged, or from an incompatible build
-			if (!ok && !is_newer_orz(input)) {
+			if (!ok && !skip_crc && !is_newer_orz(input)) {
 
 				_decoded_orz d;
 
@@ -139,7 +141,7 @@ NB_MODULE(_core, m) {
 
 	m.attr("FORMAT_VERSION") = ORZ_VERSION;
 
-	m.def("compress_osr", &compress_osr, nb::arg("data"));
-	m.def("compress_replay_data", &compress_replay_data, nb::arg("data"), nb::arg("mode"));
-	m.def("decompress", &decompress, nb::arg("data"));
+	m.def("compress_osr", &compress_osr, nb::arg("data"), nb::arg("check_round_trip"));
+	m.def("compress_replay_data", &compress_replay_data, nb::arg("data"), nb::arg("mode"), nb::arg("check_round_trip"));
+	m.def("decompress", &decompress, nb::arg("data"), nb::arg("skip_crc"));
 }
