@@ -2,56 +2,49 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import IntEnum
 
 from ._core import FORMAT_VERSION
 from ._core import OrzError
-from ._core import compress as _compress
+from ._core import compress_osr as _compress_osr
+from ._core import compress_replay_data as _compress_replay_data
 from ._core import decompress as _decompress
-from ._core import header_info as _header_info
 
-__all__ = ["FORMAT_VERSION", "HeaderInfo", "Mode", "OrzError", "compress", "decompress"]
+__all__ = ["FORMAT_VERSION", "Mode", "OrzError", "compress", "decompress"]
 
 
 class Mode(IntEnum):
-    """An osu! game mode, numbered as in .osr files."""
+    """What bare replay data is: its game mode, and whether Relax was on.
+
+    Numbered as ORZ files store it. osu!mania has no Relax. Autopilot replays are
+    OSU: the encoder recognises the autopilot path from the frames.
+    """
 
     OSU = 0
     TAIKO = 1
     CATCH = 2
     MANIA = 3
+    OSU_RELAX = 4
+    TAIKO_RELAX = 5
+    CATCH_RELAX = 6
 
 
-@dataclass(frozen=True)
-class HeaderInfo:
-    """What bare replay data is, in place of the .osr header that would say.
-
-    ``relax`` is whether it is a relax replay; osu!mania has no relax.
-    """
-
-    mode: Mode | int
-    relax: bool
-
-
-def compress(
-    data: bytes | bytearray | memoryview,
-    *,
-    header_info: HeaderInfo | None = None,
-) -> bytes:
-    """Compress an .osr file, or bare replay data with ``header_info``.
+def compress(data: bytes | bytearray | memoryview, *, mode: Mode | int | None = None) -> bytes:
+    """Compress an .osr file, or bare replay data with its ``mode``.
 
     Bare replay data is the LZMA stream osu! stores for a score (an .osr's replay
-    data field). It has no header, so ``header_info`` must say what it is. An .osr
-    has its own header, so ``header_info`` must not be given with one.
+    data field). It has no header to say what it is, so ``mode`` must. An .osr's
+    header says it, so ``mode`` must not be given with one. The mode only changes
+    how well a replay compresses, never what ``decompress`` gives back.
 
-    Raises OrzError when the input is not a replay, when ``header_info`` is missing
-    for bare replay data or given with an .osr, or for osu!mania with relax.
+    Raises OrzError for an .orz, for an .osr with ``mode``, and for anything else
+    without ``mode`` that is not an .osr. Raises ValueError for a ``mode`` that is
+    not a Mode.
     """
-    if header_info is None:
-        return _compress(bytes(data), 0)
+    if mode is None:
+        return _compress_osr(bytes(data))
 
-    return _compress(bytes(data), _header_info(Mode(header_info.mode), header_info.relax))
+    return _compress_replay_data(bytes(data), Mode(mode))
 
 
 def decompress(data: bytes | bytearray | memoryview) -> bytes:
