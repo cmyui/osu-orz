@@ -15,25 +15,29 @@ def number(v: float) -> str:
 
 
 def replay_text(mode: Mode, frames: int = 2000, seed: int = 1) -> bytes:
-    # frames of the mode's game mode
+    # frames of the mode's game mode, held for runs of frames as in play. Frames that change at random every frame code
+    # worse than LZMA, so the codec would store them as they are and the coders would go untested
     mode = mode % 4
+    keys_of = {Mode.MANIA: range(16), Mode.TAIKO: [0, 0, 1, 2, 4, 8], Mode.CATCH: [0, 0, 1]}.get(mode, [0, 0, 1, 5, 10])
     rng = random.Random(seed)
     out = ["0|256|-500|0", "-1|256|-500|0"]
-    x, y = 256.0, 192.0
+    x, y, dx, dy, walk, keys = 256.0, 192.0, 0.0, 0.0, 0, 0
     for _ in range(frames):
         delta = rng.choice([16, 17, 17])
+        if rng.random() < 0.15:
+            keys, dx, dy, walk = rng.choice(keys_of), rng.uniform(-6, 6), rng.uniform(-6, 6), rng.choice([-1, 0, 1])
         if mode == Mode.MANIA:
-            out.append(f"{delta}|{rng.randrange(16)}|{number(rng.choice([1.0, 1.5]))}|0")
+            out.append(f"{delta}|{keys}|1|0")
         elif mode == Mode.TAIKO:
-            keys = rng.choice([0, 0, 1, 2, 4, 8])
-            out.append(f"{delta}|320|9999|{keys}")
+            # x is the drum side hit: 0 for keys 1 and 2, 640 for keys 4 and 8
+            out.append(f"{delta}|{0 if keys & 3 else 640 if keys & 12 else 320}|9999|{keys}")
         elif mode == Mode.CATCH:
-            x = min(max(x + rng.uniform(-8, 8), 0), 512)
-            out.append(f"{delta}|{number(round(x * 4) / 4)}|9999|{rng.choice([0, 1])}")
+            # the catcher walks 0.5 px per ms, and dashes at 1 px per ms on key 1
+            x = min(max(x + walk * delta * (1.0 if keys & 1 else 0.5), 0), 512)
+            out.append(f"{delta}|{number(x)}|9999|{keys}")
         else:
-            x = min(max(x + rng.uniform(-6, 6), 0), 512)
-            y = min(max(y + rng.uniform(-6, 6), 0), 384)
-            out.append(f"{delta}|{number(round(x * 4) / 4)}|{number(round(y * 4) / 4)}|{rng.choice([0, 1, 5, 10])}")
+            x, y = min(max(x + dx, 0), 512), min(max(y + dy, 0), 384)
+            out.append(f"{delta}|{number(round(x * 4) / 4)}|{number(round(y * 4) / 4)}|{keys}")
     return (",".join(out) + ",").encode()
 
 
@@ -86,9 +90,13 @@ RELAX = 1 << 7
 @pytest.mark.parametrize("mode", list(Mode))
 def test_bare_replay_data_round_trips(mode: Mode) -> None:
     text = replay_text(mode)
+    data = replay_data(text)
 
-    first = osu_orz.decompress(osu_orz.compress(replay_data(text), mode=mode))
+    orz = osu_orz.compress(data, mode=mode)
+    # the frames were coded, not stored as they are
+    assert len(orz) < len(data)
 
+    first = osu_orz.decompress(orz)
     # the frames come back exactly, recompressed the way osu! compresses them
     assert text_of(first) == text
     # data osu!'s encoder wrote comes back byte for byte
@@ -108,7 +116,10 @@ def test_osr_round_trips(game_mode: int, mods: int) -> None:
 
 @pytest.mark.parametrize("frames_of", [Mode.OSU, Mode.TAIKO, Mode.CATCH, Mode.MANIA])
 def test_a_wrong_mode_only_costs_size(frames_of: Mode) -> None:
-    data = osu_orz.decompress(osu_orz.compress(replay_data(replay_text(frames_of)), mode=frames_of))
+    text = replay_text(frames_of)
+    # replay data osu!'s encoder wrote: coded frames come back compressed the way osu! compresses them
+    data = osu_orz.decompress(osu_orz.compress(replay_data(text), mode=frames_of))
+    assert text_of(data) == text and data != replay_data(text)
 
     for mode in Mode:
         assert osu_orz.decompress(osu_orz.compress(data, mode=mode)) == data

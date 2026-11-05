@@ -24,8 +24,8 @@ and an `.osr` must not be given one, so the two can never disagree.
 | `OSU_RELAX`, `TAIKO_RELAX`, `CATCH_RELAX` | the game mode with Relax (osu!mania has none) |
 
 The values are the mode numbers ORZ files store. Autopilot replays are `OSU`: the encoder recognises the autopilot
-path from the frames itself. The mode picks the coder and its priors, so a wrong mode only makes the `.orz` bigger; it
-never changes what `decompress` gives back.
+path from the frames itself. The mode picks the coder and its priors, so a wrong mode only makes the `.orz` bigger: the
+frames come back the same under every mode, and replay data osu! wrote comes back byte for byte.
 
 ## What comes back
 
@@ -36,9 +36,11 @@ never changes what `decompress` gives back.
 - the replay data's LZMA bytes, compressed again the way osu! compresses them. Replay data osu! wrote comes back byte
   for byte. Data written by other software comes back with the same frames, compressed like osu! would.
 
-Replay data the codec can not code as frames (not LZMA, or text that is not osu!'s frames) is stored as it is, and comes
-back byte for byte. `compress` also decodes what it wrote before returning it, and stores the replay data as it is if
-that does not give the replay back.
+Some replay data is stored as it is, and comes back byte for byte:
+
+- data the codec can not code as frames (not LZMA, or text that is not osu!'s frames);
+- data whose coded frames would be no smaller than its LZMA;
+- data whose coded frames do not decode back to it. `compress` checks by decoding what it wrote.
 
 Errors raise `osu_orz.OrzError` (a `ValueError`): an `.osr` given a `mode`, anything else without one that is not an
 `.osr`, an `.orz` given to `compress`, or an `.orz` that is damaged, cut short or made by a newer format version. A
