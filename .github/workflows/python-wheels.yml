@@ -1,0 +1,142 @@
+name: Python wheels
+
+# Every push and pull request builds and tests the wheel. A push to main whose pyproject.toml version has no finished
+# release publishes it: the v{version} tag and GitHub release, then PyPI through trusted publishing.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate version and select release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/scripts/select-release.py
+
+  wheels:
+    name: Wheel / linux-x86_64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: pypa/cibuildwheel@v4.2.1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osu-orz-wheel-linux-x86_64
+          path: wheelhouse/*.whl
+
+  installed:
+    name: Installed / linux-x86_64 / Python ${{ matrix.python }}
+    needs: wheels
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.14']
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: osu-orz-wheel-linux-x86_64
+          path: wheelhouse
+      - run: python -m pip install pytest
+      - run: python -m pip install --no-index --find-links wheelhouse osu-orz
+      - run: python -m pytest tests
+
+  source-install:
+    name: Source install
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install '.[test]'
+      - run: python -m pytest tests
+
+  sdist:
+    name: Source distribution
+    if: needs.release-metadata.outputs.publish == 'true'
+    needs: release-metadata
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - run: python -m pip install build
+      - run: python -m build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osu-orz-sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: Publish release artifacts
+    if: needs.release-metadata.outputs.publish == 'true'
+    needs: [release-metadata, wheels, installed, source-install, sdist]
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/osu-orz
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: osu-orz-*
+          path: dist
+          merge-multiple: true
+      - name: Create draft release and upload artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-metadata.outputs.tag }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --draft --generate-notes \
+              --target "$GITHUB_SHA" --title "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber \
+            --repo "$GITHUB_REPOSITORY"
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-metadata.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"

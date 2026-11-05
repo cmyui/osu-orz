@@ -15,23 +15,29 @@ def number(v: float) -> str:
 
 
 def replay_text(mode: Mode, frames: int = 2000, seed: int = 1) -> bytes:
+    # frames of the mode's game mode, held for runs of frames as in play. Frames that change at random every frame code
+    # worse than LZMA, so the codec would store them as they are and the coders would go untested
+    mode = mode % 4
+    keys_of = {Mode.MANIA: range(16), Mode.TAIKO: [0, 0, 1, 2, 4, 8], Mode.CATCH: [0, 0, 1]}.get(mode, [0, 0, 1, 5, 10])
     rng = random.Random(seed)
     out = ["0|256|-500|0", "-1|256|-500|0"]
-    x, y = 256.0, 192.0
+    x, y, dx, dy, walk, keys = 256.0, 192.0, 0.0, 0.0, 0, 0
     for _ in range(frames):
         delta = rng.choice([16, 17, 17])
+        if rng.random() < 0.15:
+            keys, dx, dy, walk = rng.choice(keys_of), rng.uniform(-6, 6), rng.uniform(-6, 6), rng.choice([-1, 0, 1])
         if mode == Mode.MANIA:
-            out.append(f"{delta}|{rng.randrange(16)}|{number(rng.choice([1.0, 1.5]))}|0")
+            out.append(f"{delta}|{keys}|1|0")
         elif mode == Mode.TAIKO:
-            keys = rng.choice([0, 0, 1, 2, 4, 8])
-            out.append(f"{delta}|320|9999|{keys}")
+            # x is the drum side hit: 0 for keys 1 and 2, 640 for keys 4 and 8
+            out.append(f"{delta}|{0 if keys & 3 else 640 if keys & 12 else 320}|9999|{keys}")
         elif mode == Mode.CATCH:
-            x = min(max(x + rng.uniform(-8, 8), 0), 512)
-            out.append(f"{delta}|{number(round(x * 4) / 4)}|9999|{rng.choice([0, 1])}")
+            # the catcher walks 0.5 px per ms, and dashes at 1 px per ms on key 1
+            x = min(max(x + walk * delta * (1.0 if keys & 1 else 0.5), 0), 512)
+            out.append(f"{delta}|{number(x)}|9999|{keys}")
         else:
-            x = min(max(x + rng.uniform(-6, 6), 0), 512)
-            y = min(max(y + rng.uniform(-6, 6), 0), 384)
-            out.append(f"{delta}|{number(round(x * 4) / 4)}|{number(round(y * 4) / 4)}|{rng.choice([0, 1, 5, 10])}")
+            x, y = min(max(x + dx, 0), 512), min(max(y + dy, 0), 384)
+            out.append(f"{delta}|{number(round(x * 4) / 4)}|{number(round(y * 4) / 4)}|{keys}")
     return (",".join(out) + ",").encode()
 
 
@@ -64,9 +70,9 @@ def osu_string(s: str) -> bytes:
             return b"\x0b" + bytes(uleb) + b
 
 
-def osr(mode: Mode, data: bytes, mods: int = 0, life: str = "") -> bytes:
+def osr(game_mode: int, data: bytes, mods: int = 0, life: str = "") -> bytes:
     return b"".join([
-        struct.pack("<Bi", mode, 20240101),
+        struct.pack("<Bi", game_mode, 20240101),
         osu_string("d41d8cd98f00b204e9800998ecf8427e"),
         osu_string("player"),
         osu_string("0123456789abcdef0123456789abcdef"),
@@ -78,23 +84,29 @@ def osr(mode: Mode, data: bytes, mods: int = 0, life: str = "") -> bytes:
     ])
 
 
+RELAX = 1 << 7
+
+
 @pytest.mark.parametrize("mode", list(Mode))
 def test_bare_replay_data_round_trips(mode: Mode) -> None:
     text = replay_text(mode)
     data = replay_data(text)
 
-    first = osu_orz.decompress(osu_orz.compress(data, mode))
+    orz = osu_orz.compress(data, mode=mode)
+    # the frames were coded, not stored as they are
+    assert len(orz) < len(data)
 
+    first = osu_orz.decompress(orz)
     # the frames come back exactly, recompressed the way osu! compresses them
     assert text_of(first) == text
     # data osu!'s encoder wrote comes back byte for byte
-    assert osu_orz.decompress(osu_orz.compress(first, mode)) == first
+    assert osu_orz.decompress(osu_orz.compress(first, mode=mode)) == first
 
 
-@pytest.mark.parametrize("mode", list(Mode))
-def test_osr_round_trips(mode: Mode) -> None:
-    life = "0|1,4000|0.95,8000|0.8,12000|1," if mode != Mode.MANIA else ""
-    original = osr(mode, replay_data(replay_text(mode)), life=life)
+@pytest.mark.parametrize("game_mode, mods", [(0, 0), (1, 0), (2, 0), (3, 0), (0, RELAX), (1, RELAX), (2, RELAX)])
+def test_osr_round_trips(game_mode: int, mods: int) -> None:
+    life = "0|1,4000|0.95,8000|0.8,12000|1," if game_mode != Mode.MANIA else ""
+    original = osr(game_mode, replay_data(replay_text(Mode(game_mode))), mods=mods, life=life)
 
     first = osu_orz.decompress(osu_orz.compress(original))
 
@@ -102,19 +114,61 @@ def test_osr_round_trips(mode: Mode) -> None:
     assert len(first) < len(original) * 2
 
 
-def test_relax() -> None:
-    data = replay_data(replay_text(Mode.OSU))
-    first = osu_orz.decompress(osu_orz.compress(data, Mode.OSU, relax=True))
+@pytest.mark.parametrize("frames_of", [Mode.OSU, Mode.TAIKO, Mode.CATCH, Mode.MANIA])
+def test_a_wrong_mode_only_costs_size(frames_of: Mode) -> None:
+    text = replay_text(frames_of)
+    # replay data osu!'s encoder wrote: coded frames come back compressed the way osu! compresses them
+    data = osu_orz.decompress(osu_orz.compress(replay_data(text), mode=frames_of))
+    assert text_of(data) == text and data != replay_data(text)
 
-    assert osu_orz.decompress(osu_orz.compress(first, Mode.OSU, relax=True)) == first
-    with pytest.raises(ValueError):
-        osu_orz.compress(osr(Mode.OSU, data), relax=True)
+    for mode in Mode:
+        assert osu_orz.decompress(osu_orz.compress(data, mode=mode)) == data
+
+
+def test_data_that_is_not_replay_data_comes_back_as_it_is() -> None:
+    data = bytes([0x5D]) + random.Random(2).randbytes(3000)
+
+    assert osu_orz.decompress(osu_orz.compress(data, mode=Mode.OSU)) == data
+
+
+def test_mode_is_for_bare_replay_data_only() -> None:
+    data = replay_data(replay_text(Mode.OSU))
+
+    # an .osr says what it is itself, so the two could disagree
+    with pytest.raises(osu_orz.OrzError):
+        osu_orz.compress(osr(0, data), mode=Mode.OSU)
+    # bare replay data does not
+    with pytest.raises(osu_orz.OrzError):
+        osu_orz.compress(data)
+    # 7 is autopilot, which the encoder finds itself
+    for mode in (-1, 7, 8):
+        with pytest.raises(ValueError):
+            osu_orz.compress(data, mode=mode)
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+def test_check_round_trip_only_checks(mode: Mode) -> None:
+    data = replay_data(replay_text(mode))
+
+    assert osu_orz.compress(data, mode=mode, check_round_trip=True) == osu_orz.compress(data, mode=mode)
+
+
+def test_skip_crc() -> None:
+    orz = osu_orz.compress(replay_data(replay_text(Mode.OSU)), mode=Mode.OSU)
+    assert osu_orz.decompress(orz, skip_crc=True) == osu_orz.decompress(orz)
+
+    damaged = bytearray(orz)
+    damaged[len(orz) // 2] ^= 0x40
+    with pytest.raises(osu_orz.OrzError):
+        osu_orz.decompress(bytes(damaged))
+    # what is left of it
+    osu_orz.decompress(bytes(damaged), skip_crc=True)
 
 
 def test_compresses() -> None:
     data = replay_data(replay_text(Mode.OSU, frames=20000))
 
-    assert len(osu_orz.compress(data, Mode.OSU)) < len(data) / 2
+    assert len(osu_orz.compress(data, mode=Mode.OSU)) < len(data) / 2
 
 
 def test_bad_input() -> None:
@@ -122,22 +176,24 @@ def test_bad_input() -> None:
         osu_orz.compress(b"not a replay" * 20)
     with pytest.raises(osu_orz.OrzError):
         osu_orz.decompress(b"not an orz file")
-    with pytest.raises(ValueError):
-        osu_orz.compress(b"", 7)
 
-    orz = osu_orz.compress(replay_data(replay_text(Mode.OSU)), Mode.OSU)
+    orz = osu_orz.compress(replay_data(replay_text(Mode.OSU)), mode=Mode.OSU)
+    with pytest.raises(osu_orz.OrzError):
+        osu_orz.compress(orz)
+    with pytest.raises(osu_orz.OrzError):
+        osu_orz.compress(orz, mode=Mode.OSU)
     for cut in (1, 2, 8, len(orz) // 2):
         with pytest.raises(osu_orz.OrzError):
             osu_orz.decompress(orz[:cut])
 
 
 def test_threads() -> None:
-    data = [replay_data(replay_text(m, seed=s)) for m in Mode for s in range(3)]
     modes = [m for m in Mode for _ in range(3)]
-    expected = [osu_orz.compress(d, m) for d, m in zip(data, modes)]
+    data = [replay_data(replay_text(m, seed=s)) for s, m in enumerate(modes)]
+    expected = [osu_orz.compress(d, mode=m) for d, m in zip(data, modes)]
 
     with concurrent.futures.ThreadPoolExecutor(8) as pool:
-        got = list(pool.map(osu_orz.compress, data, modes))
+        got = list(pool.map(lambda d, m: osu_orz.compress(d, mode=m), data, modes))
         back = list(pool.map(osu_orz.decompress, got))
 
     assert got == expected

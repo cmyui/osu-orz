@@ -17,7 +17,8 @@ target_include_directories(_core PRIVATE ${ORZ})
 target_link_libraries(_core PRIVATE orz_lzma)
 
 # files only decode where every build does its float maths exactly as written: no fused multiply-add contraction
-# (which -march=native would allow) and no fast-math
+# (which -march=native would allow) and no fast-math. The codec refuses to build with GCC unless told contraction is off
 target_compile_options(_core PRIVATE -ffp-contract=off -fno-fast-math)
+target_compile_definitions(_core PRIVATE ORZ_FP_CONTRACT_OFF)
 
 install(TARGETS _core LIBRARY DESTINATION osu_orz)
