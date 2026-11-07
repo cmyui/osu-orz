@@ -57,8 +57,8 @@ is versioned, decode an `.orz` with the osu-orz version that wrote it.
 
 ## Platform
 
-Linux on x86-64 (SSE 4.2) with CPython 3.12 or newer. The codec uses x86 CRC instructions, so other architectures do
-not build yet.
+CPython 3.12 or newer, on Linux on x86-64 (SSE 4.2) or arm64, or on macOS 26 or newer on arm64. The codec uses each
+architecture's CRC instructions, and Apple's C++ library parses floats with `std::from_chars` only from macOS 26 on.
 
 ## Building from source
 
