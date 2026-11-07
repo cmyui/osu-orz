@@ -65,9 +65,15 @@ jobs:
         with:
           name: osu-orz-wheel-linux-x86_64
           path: wheelhouse
-      - run: python -m pip install pytest
+      - run: python -m pip install pytest mypy nanobind
       - run: python -m pip install --no-index --find-links wheelhouse osu-orz
       - run: python -m pytest tests
+      - name: Type-check the package and tests
+        run: python -m mypy
+      - name: Check the compiled module's stub is what nanobind.stubgen writes for it
+        run: |
+          python -m nanobind.stubgen -q -m osu_orz._core -o "$RUNNER_TEMP/_core.pyi"
+          diff -u src/osu_orz/_core.pyi "$RUNNER_TEMP/_core.pyi"
 
   source-install:
     name: Source install

@@ -17,7 +17,7 @@ def number(v: float) -> str:
 def replay_text(mode: Mode, frames: int = 2000, seed: int = 1) -> bytes:
     # frames of the mode's game mode, held for runs of frames as in play. Frames that change at random every frame code
     # worse than LZMA, so the codec would store them as they are and the coders would go untested
-    mode = mode % 4
+    mode = Mode(mode % 4)
     keys_of = {Mode.MANIA: range(16), Mode.TAIKO: [0, 0, 1, 2, 4, 8], Mode.CATCH: [0, 0, 1]}.get(mode, [0, 0, 1, 5, 10])
     rng = random.Random(seed)
     out = ["0|256|-500|0", "-1|256|-500|0"]
