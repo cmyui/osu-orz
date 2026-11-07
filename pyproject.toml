@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "osu-orz"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lossless compression for osu! replays with the ORZ format"
 readme = "README.md"
 license = "MIT"
@@ -25,6 +25,10 @@ Source = "https://github.com/cmyui/osu-orz"
 
 [project.optional-dependencies]
 test = ["pytest"]
+
+[tool.mypy]
+strict = true
+files = ["src/osu_orz", "tests"]
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
