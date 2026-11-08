@@ -2,15 +2,44 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from enum import IntEnum
 
 from ._core import FORMAT_VERSION
+from ._core import Absolute
+from ._core import AxisSegment
+from ._core import Coding
+from ._core import CompressResult
+from ._core import Device
+from ._core import Mapping
+from ._core import Mouse
 from ._core import OrzError
+from ._core import Playfield
+from ._core import Rational
+from ._core import Text
 from ._core import compress_osr as _compress_osr
 from ._core import compress_replay_data as _compress_replay_data
 from ._core import decompress as _decompress
+from ._core import orz_device as _orz_device
 
-__all__ = ["FORMAT_VERSION", "Mode", "OrzError", "compress", "decompress"]
+__all__ = [
+    "FORMAT_VERSION",
+    "Absolute",
+    "AxisSegment",
+    "Coding",
+    "CompressResult",
+    "Device",
+    "Mapping",
+    "Mode",
+    "Mouse",
+    "OrzError",
+    "Playfield",
+    "Rational",
+    "Text",
+    "compress",
+    "decompress",
+    "device",
+]
 
 
 class Mode(IntEnum):
@@ -34,7 +63,8 @@ def compress(
     *,
     mode: Mode | int | None = None,
     check_round_trip: bool = False,
-) -> bytes:
+    device_hints: Iterable[Device | bytes] = (),
+) -> CompressResult:
     """Compress an .osr file, or bare replay data with its ``mode``.
 
     Bare replay data is the LZMA stream osu! stores for a score (an .osr's replay
@@ -46,14 +76,21 @@ def compress(
     data as it is if that does not give the replay back: slower, but a coding bug
     can not turn into a replay that decodes wrong.
 
-    Raises OrzError for an .orz, for an .osr with ``mode``, and for anything else
-    without ``mode`` that is not an .osr. Raises ValueError for a ``mode`` that is
-    not a Mode.
-    """
-    if mode is None:
-        return _compress_osr(bytes(data), check_round_trip)
+    ``device_hints`` are the devices of the player's earlier replays, most likely
+    first, as ``compress`` or ``device`` gave them for the same FORMAT_VERSION.
+    The first that still fits the replay is used, skipping the encoder's device
+    search. Hints never change what ``decompress`` gives back.
 
-    return _compress_replay_data(bytes(data), Mode(mode), check_round_trip)
+    Raises OrzError for an .orz, for an .osr with ``mode``, for anything else
+    without ``mode`` that is not an .osr, and for a hint that is not a device.
+    Raises ValueError for a ``mode`` that is not a Mode.
+    """
+    hints = [h.data if isinstance(h, Device) else bytes(h) for h in device_hints]
+
+    if mode is None:
+        return _compress_osr(bytes(data), check_round_trip, hints)
+
+    return _compress_replay_data(bytes(data), Mode(mode), check_round_trip, hints)
 
 
 def decompress(data: bytes | bytearray | memoryview, *, skip_crc: bool = False) -> bytes:
@@ -66,3 +103,12 @@ def decompress(data: bytes | bytearray | memoryview, *, skip_crc: bool = False) 
     (damaged, or written by an incompatible build), to recover what is left of it.
     """
     return _decompress(bytes(data), skip_crc)
+
+
+def device(data: bytes | bytearray | memoryview) -> Device | None:
+    """The device an .orz's frames are coded on: ``compress``'s ``device`` again.
+
+    Reads only the file's head, so it does not check the CRC. Raises OrzError
+    when the input is not a valid .orz file or was made by a newer format version.
+    """
+    return _orz_device(bytes(data))
