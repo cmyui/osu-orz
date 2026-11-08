@@ -1,12 +1,16 @@
 // nanobind bindings for the ORZ codec (extern/osu_replay_zip), on bytes
 
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/tuple.h>
 #include <nanobind/stl/vector.h>
 
 #include <charconv>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <stdexcept>
+#include <tuple>
 #include <vector>
 
 #include "orz_shared.h"
@@ -68,11 +72,11 @@ namespace {
 		return false;
 	}
 
-	// a device as .orz files store it, None when no axis has a device model
-	nb::object device_bytes(const dspace::_model_info& m) {
+	// a device as .orz files store it, none when no axis has a device model
+	std::optional<nb::bytes> device_bytes(const dspace::_model_info& m) {
 
 		if (!has_device(m))
-			return nb::none();
+			return {};
 
 		bit_stream o{};
 
@@ -81,12 +85,12 @@ namespace {
 		return to_bytes(o.data);
 	}
 
-	// the first hint whose device (each axis's last segment) the output is coded with, -1 for none. A mouse's poll rate
-	// may differ: the encoder picks the one that codes the replay best
-	int matched_hint(const dspace::_model_info& device, std::span<const dspace::_model_info> hints) {
+	// the first hint whose device (each axis's last segment) the output is coded with. A mouse's poll rate may differ:
+	// the encoder picks the one that codes the replay best
+	std::optional<int> matched_hint(const dspace::_model_info& device, std::span<const dspace::_model_info> hints) {
 
 		if (!has_device(device))
-			return -1;
+			return {};
 
 		for (size_t i{}; i < hints.size(); ++i) {
 
@@ -109,7 +113,7 @@ namespace {
 
 		}
 
-		return -1;
+		return {};
 	}
 
 	// how the output's frames are coded, as osu_orz.Coding numbers them
@@ -129,10 +133,12 @@ namespace {
 		return has_device(device) ? 3 : 2;
 	}
 
+	using compressed = std::tuple<nb::bytes, std::optional<nb::bytes>, std::optional<int>, int>;
+
 	// runs to_orz(out, state) with the GIL released, and gives back (orz, device, matched hint, coding). check_round_trip:
 	// the encoder decodes what it wrote, and stores the replay data as it is when that does not give the replay back
 	template <class F>
-	nb::tuple encode(F to_orz, bool check_round_trip, const std::vector<nb::bytes>& device_hints, const char* failure) {
+	compressed encode(F to_orz, bool check_round_trip, const std::vector<nb::bytes>& device_hints, const char* failure) {
 
 		std::vector<dspace::_model_info> hints(device_hints.size());
 
@@ -156,13 +162,11 @@ namespace {
 		if (!ok)
 			throw orz_error(failure);
 
-		const int hint{ matched_hint(state.device, hints) };
-
-		return nb::make_tuple(to_bytes(out), device_bytes(state.device), hint < 0 ? nb::none() : nb::object(nb::int_(hint)),
-			coding_of(state.file.encode_info, state.device));
+		return { to_bytes(out), device_bytes(state.device), matched_hint(state.device, hints),
+			coding_of(state.file.encode_info, state.device) };
 	}
 
-	nb::tuple compress_osr(const nb::bytes& data, bool check_round_trip, const std::vector<nb::bytes>& device_hints) {
+	compressed compress_osr(const nb::bytes& data, bool check_round_trip, const std::vector<nb::bytes>& device_hints) {
 
 		const auto input{ view(data) };
 
@@ -177,7 +181,7 @@ namespace {
 	}
 
 	// mode: the e_mode, 0 to 6 (finding autopilot is the encoder's job)
-	nb::tuple compress_replay_data(const nb::bytes& data, u32 mode, bool check_round_trip,
+	compressed compress_replay_data(const nb::bytes& data, u32 mode, bool check_round_trip,
 		const std::vector<nb::bytes>& device_hints) {
 
 		const auto input{ view(data) };
@@ -237,18 +241,21 @@ namespace {
 		return d;
 	}
 
+	using segment = nb::typed<nb::dict, nb::str, nb::object>;
+	using segments = nb::typed<nb::list, segment>;
+
 	// a device's segments for one axis, each with only the parameters its kind has
-	nb::list axis_segments(const dspace::axis_model& axis) {
+	segments axis_segments(const dspace::axis_model& axis) {
 
 		using namespace dspace;
 
-		nb::list out;
+		segments out;
 
 		for (const auto& s : axis.seg) {
 
 			const auto& p{ s.p };
 
-			nb::dict d;
+			segment d;
 
 			d["start"] = s.start;
 			d["kind"] = (int)p.device.kind;
@@ -283,14 +290,14 @@ namespace {
 		return out;
 	}
 
-	nb::tuple device_segments(const nb::bytes& data) {
+	std::tuple<segments, segments> device_segments(const nb::bytes& data) {
 
 		dspace::_model_info m{};
 
 		if (!read_device(view(data), m))
 			throw orz_error("not a device");
 
-		return nb::make_tuple(axis_segments(m.axis[0]), axis_segments(m.axis[1]));
+		return { axis_segments(m.axis[0]), axis_segments(m.axis[1]) };
 	}
 
 	// the device an .orz's frames are coded with, empty when osu!standard's coder did not code them. Reads only the
@@ -321,7 +328,7 @@ namespace {
 		return true;
 	}
 
-	nb::object orz_device(const nb::bytes& data) {
+	std::optional<nb::bytes> orz_device(const nb::bytes& data) {
 
 		const auto input{ view(data) };
 
