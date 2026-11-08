@@ -211,7 +211,9 @@ def test_device_reads_back() -> None:
     assert result.coding == Coding.DEVICE and result.device is not None
     # the .orz stores the device the result gives
     assert osu_orz.device(result.compressed_bytes) == result.device
-    assert osu_orz.Device.from_bytes(result.device.data) == result.device
+    read = osu_orz.Device.from_bytes(result.device.data)
+    assert read == result.device and hash(read) == hash(result.device)
+    assert read.x == result.device.x and read.y == result.device.y
 
 
 @pytest.mark.parametrize("mode", [Mode.TAIKO, Mode.CATCH, Mode.MANIA, Mode.TAIKO_RELAX])
@@ -232,7 +234,8 @@ def test_device_hints_only_change_the_search() -> None:
     # a replay's own device fits it
     for hints in ([own], [own.data], [own, other]):
         hinted = osu_orz.compress(data, mode=Mode.OSU, device_hints=hints)
-        assert hinted.matched_hint == 0 and hinted.device == own
+        assert hinted.hint_used == 0 and hinted.device == own
+    assert plain.hint_used is None
 
     # whether a hint fits or not, the replay decodes the same
     for hints in ([other], [other, own]):

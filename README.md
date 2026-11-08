@@ -58,29 +58,39 @@ reads it back from an `.orz` without decoding the frames:
 
 ```python
 result = osu_orz.compress(osr_bytes, device_hints=[earlier.device])
-result.device.x[0].kind         # DeviceKind.MOUSE
-result.device.x[0].sensitivity  # 0.75
-result.device.data              # bytes to store, and to pass back as a hint
-result.matched_hint             # 0: the .orz is coded on the first hint's device
+result.device.data  # bytes to store, and to pass back as a hint
+result.hint_used    # 0: the encoder took the first hint and skipped its device search
+
+match result.device.x[0].model:
+    case osu_orz.Mouse(sensitivity=sensitivity, poll_rate=poll_rate):
+        ...
+    case osu_orz.Absolute(mapping=osu_orz.Mapping.WINDOW, span=span, speed=speed):
+        ...
 ```
 
 `result.device` is None when the frames are not coded on a device model; `result.coding` says how they are coded
 (stored as given, the osu!taiko, osu!catch and osu!mania coder, decimal text, or osu!'s autopilot path).
 
 Each axis has one `AxisSegment`, or more when the setup changed during the replay (window moved, device swapped). Its
-`kind` is the model that reproduces the positions, which only partly says what hardware made them:
+`model` is the model that reproduces the positions, which only partly says what hardware made them, and holds only that
+model's parameters:
 
-| `DeviceKind` | Positions |
+| `model` | Positions |
 |---|---|
-| `RATIONAL` | on the OS cursor's lattice: mostly raw input off, from a mouse or a tablet |
-| `MOUSE` | from a device that reports movement, with its sensitivity and poll rate |
-| `ABSOLUTE` | from a device that reports where it points (a tablet or touch screen), mapped onto the window or the desktop |
-| `TEXT` | not on a model: coded as their decimal text |
+| `Rational(a, b, d)` | on the OS cursor's lattice, `(a * k + b) / d` for whole `k`: mostly raw input off, from a mouse or a tablet |
+| `Mouse(sensitivity, poll_rate, playfield)` | from a device that reports movement |
+| `Absolute(mapping, span, speed, window_half, origin, x87, playfield)` | from a device that reports where it points (a tablet or touch screen), mapped onto the window or the desktop |
+| `Text()` | not on a model: coded as their decimal text |
+
+`playfield` is where the playfield sits in osu!'s window, as `Playfield(scale, offset, unrounded_sub)`: a position of
+window pixels is `(pixels - offset) / scale` on the playfield. The floats are the codec's float32s, each as the
+shortest decimal that reads back as it; `data` holds them exactly. These types compare, hash and print by their fields.
 
 `device_hints` takes the devices of the player's earlier replays, most likely first. The first that still fits the
-replay is used and the device search is skipped. Hints never change what `decompress` gives back. A hint that is not a
-device raises `OrzError`. `data` is the device as `.orz` files store it, so hint only with devices from the same
-`FORMAT_VERSION`.
+replay is used and the device search is skipped (`hint_used` says which). The search can find a hint's device too, so
+compare devices to tell whether a replay's device is a hint's. Hints never change what `decompress` gives back. A hint
+that is not a device raises `OrzError`. `data` is the device as `.orz` files store it, so hint only with devices from
+the same `FORMAT_VERSION`.
 
 ## Format stability
 
